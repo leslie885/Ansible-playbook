@@ -1,19 +1,4 @@
 ---
-- name: Manage firewalld service
-  hosts: your_target_host
-  become: true  # Run tasks with sudo (root) privileges  
-
-  tasks:
-    - name: Install firewalld
-      package:
-        name: firewalld
-        state: present  # Ensure the package is installed
-
-    - name: Start firewalld service
-      service:
-        name: firewalld
-        state: started  # Ensure the service is started  
-
 - name: Install and configure Jenkins
   hosts: "{{ jenkins_host }}"
   become: yes
