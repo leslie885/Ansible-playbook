@@ -1,0 +1,124 @@
+---
+- name: Manage firewalld service
+  hosts: your_target_host
+  become: true  # Run tasks with sudo (root) privileges  
+
+  tasks:
+    - name: Install firewalld
+      package:
+        name: firewalld
+        state: present  # Ensure the package is installed
+
+    - name: Start firewalld service
+      service:
+        name: firewalld
+        state: started  # Ensure the service is started  
+
+- name: Install and configure Jenkins
+  hosts: "{{ jenkins_host }}"
+  become: yes
+  remote_user: "{{ jenkins_remote_user }}"
+  become_user: "{{ jenkins_become_user }}"
+  vars_files:
+    - var.yml
+
+  tasks:
+    - name: Create /etc/yum.repos.d directory (for CentOS)
+      file:
+        path: /etc/yum.repos.d
+        state: directory
+      when: ansible_os_family == 'RedHat'
+
+    - name: Install curl (for CentOS)
+      when: ansible_os_family == 'RedHat'
+      package:
+        name: curl
+        state: present
+
+    - name: Download Long Term Jenkins release (for CentOS)
+      get_url:
+        url: https://pkg.jenkins.io/redhat-stable/jenkins.repo
+        dest: /etc/yum.repos.d/jenkins.repo
+      when: ansible_os_family == 'RedHat'
+
+    - name: Add Jenkins repository (for Ubuntu)
+      apt_repository:
+        repo: "deb http://pkg.jenkins.io/debian-stable binary/"
+        state: present
+        update_cache: yes
+      when: ansible_os_family == 'Debian'
+
+    - name: Install curl (for Ubuntu)
+      when: ansible_os_family == 'Debian'
+      package:
+        name: curl
+        state: present
+
+    - name: Import Jenkins key (for Ubuntu and CentOS)
+      block:
+        - name: Download GPG key
+          get_url:
+            url: "{{ jenkins_key_url }}"
+            dest: "/tmp/key.gpg"
+          ignore_errors: yes
+
+        - name: Import GPG key (for Ubuntu)
+          command: gpg --import /tmp/key.gpg
+          when: ansible_os_family == 'Debian'
+
+        - name: Import GPG key (for CentOS)
+          rpm_key:
+            state: present
+            key: "{{ jenkins_key_url }}"
+          when: ansible_os_family == 'RedHat'
+
+    - name: Update package manager cache (for Ubuntu)
+      when: ansible_os_family == 'Debian'
+      apt:
+        update_cache: yes
+
+    - name: Install java (for Ubuntu and CentOS)
+      block:
+        - name: Install java (for Ubuntu)
+          when: ansible_os_family == 'Debian'
+          package:
+            name: openjdk-11-jdk
+            state: present
+        - name: Install java (for CentOS)
+          when: ansible_os_family == 'RedHat'
+          yum:
+            name: java-11*
+            state: present
+
+    - name: Install Jenkins
+      package:
+        name: jenkins
+        state: latest
+
+    - name: daemon-reload to pick up config changes
+      systemd:
+        daemon_reload: yes
+
+    - name: Start Jenkins
+      systemd:
+        name: jenkins
+        state: started
+
+    - name: Start and enable firewalld service
+      systemd:
+        name: firewalld
+        state: started
+
+    - name: Allow incoming traffic on port 8080
+      shell:
+        cmd: "firewall-cmd --zone=public --add-port=8080/tcp --permanent && firewall-cmd --reload"
+        executable: /bin/bash
+
+    - name: Cat file contents
+      shell:
+        cmd: "cat /var/lib/jenkins/secrets/initialAdminPassword"
+      register: initialpass
+
+    - name: Print Jenkins default password
+      debug:
+        msg: "Jenkins default password: {{ initialpass.stdout }}"
